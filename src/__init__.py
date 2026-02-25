@@ -1,0 +1,1 @@
+"""Morny Discord bot package."""

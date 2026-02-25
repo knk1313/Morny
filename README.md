@@ -196,9 +196,105 @@ GOOGLE_CLIENT_SECRET_FILE=/app/data/credentials.json
 3. PaaSで楽したい（現状維持寄り）: `Render` または `Railway`（永続ディスク/Volume必須）
 4. 少し構成追加してもよい: `Fly.io`
 
+## Render デプロイ手順（現状コードほぼそのまま）
+
+このリポジトリには `render.yaml`（Blueprint）を含めています。`discord.py` の常駐Botとして動かすため、Renderでは **Background Worker + Persistent Disk** を使います。
+
+### 前提
+
+- Renderアカウント作成済み
+- GitHub にこのリポジトリをpush済み
+- ローカルで一度 Google OAuth 認証を済ませて `token.json` を生成済み（推奨）
+
+### 1. Render で Blueprint から作成
+
+1. Render ダッシュボードで `New +` → `Blueprint`
+2. このリポジトリを選択
+3. `render.yaml` を読み込ませる
+4. Worker Service（`morny-bot`）の作成内容を確認して作成
+
+`render.yaml` の内容（概要）:
+
+- `type: worker`
+- `startCommand: python -m src.main`
+- Persistent Disk を `/var/morny` にマウント
+- `DATABASE_PATH`, `GOOGLE_*_FILE` を `/var/morny/...` に設定
+
+### 2. 必須環境変数を設定（Render Dashboard）
+
+最低限必要:
+
+- `DISCORD_BOT_TOKEN`
+- `DISCORD_GUILD_ID`（任意だがMVPでは推奨）
+
+`render.yaml` で以下はデフォルト設定済みです（変更しなくてOK）:
+
+- `DEFAULT_TIMEZONE=Asia/Tokyo`
+- `DATABASE_PATH=/var/morny/bot.db`
+- `GOOGLE_CLIENT_SECRET_FILE=/var/morny/credentials.json`
+- `GOOGLE_TOKEN_FILE=/var/morny/token.json`
+
+### 3. Google の `credentials.json` / `token.json` を Render に渡す（おすすめ方法）
+
+この実装は、起動時に以下の環境変数があればファイルを自動生成できます（ファイル未存在時のみ）。
+
+- `GOOGLE_CLIENT_SECRET_JSON_B64`
+- `GOOGLE_TOKEN_JSON_B64`
+
+ローカルで base64 文字列を作る例（macOS / Linux 共通で Python を使用）:
+
+```bash
+python - <<'PY'
+import base64, pathlib
+print(base64.b64encode(pathlib.Path('credentials.json').read_bytes()).decode())
+PY
+```
+
+```bash
+python - <<'PY'
+import base64, pathlib
+print(base64.b64encode(pathlib.Path('token.json').read_bytes()).decode())
+PY
+```
+
+出力された1行文字列を Render の Secret env に設定:
+
+- `GOOGLE_CLIENT_SECRET_JSON_B64=<credentials.json の base64>`
+- `GOOGLE_TOKEN_JSON_B64=<token.json の base64>`
+
+補足:
+
+- 初回起動時に `/var/morny/credentials.json`, `/var/morny/token.json` が生成されます
+- すでにファイルがある場合は上書きしません（トークン更新を壊さないため）
+
+### 4. デプロイ後の確認
+
+- Render Logs で以下が出ることを確認
+  - `Synced ... commands to guild ...`
+  - `Morning scheduler started`
+  - `Logged in as ...`
+- Discord で `/status`, `/today` を試す
+
+### 5. 運用上の注意（Render）
+
+- **1インスタンス運用**（SQLite + APScheduler のため）
+- Persistent Disk を外すと `bot.db` / `token.json` が失われる
+- `credentials.json`, `token.json`, `.env` は Git にコミットしない
+
+### 6. トラブルシュート（Render）
+
+- `予定の取得に失敗しました`
+  - `GOOGLE_CLIENT_SECRET_JSON_B64` / `GOOGLE_TOKEN_JSON_B64` の設定漏れ
+  - `credentials.json` / `token.json` のbase64文字列が壊れている
+- `Missing Access`（起動時コマンド同期）
+  - `DISCORD_GUILD_ID` と Bot招待先サーバーが不一致
+- 起動はするが通知が来ない
+  - `/morning_on` を実行したチャンネルに Bot の `Send Messages` 権限がない
+
 ## デプロイ時の注意（Google OAuth / ファイル配置）
 
 - この実装は `credentials.json` / `token.json` をファイルとして読みます
+- 起動時に `GOOGLE_CLIENT_SECRET_JSON(_B64)` / `GOOGLE_TOKEN_JSON(_B64)` が設定されていれば、ファイル未存在時に自動生成できます（Render向け補助）
 - リモート環境で初回認証を直接行うのは手間がかかる場合があります
 - 先にローカルで認証して `token.json` を作成し、デプロイ先の永続ストレージへ配置する方法が簡単です
 - `token.json`, `credentials.json`, `.env` はGitにコミットしないでください

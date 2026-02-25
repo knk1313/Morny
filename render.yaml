@@ -1,0 +1,30 @@
+services:
+  - type: worker
+    name: morny-bot
+    runtime: python
+    plan: starter
+    autoDeploy: true
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: python -m src.main
+    disk:
+      name: morny-data
+      mountPath: /var/morny
+      sizeGB: 1
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+      - key: DEFAULT_TIMEZONE
+        value: Asia/Tokyo
+      - key: DATABASE_PATH
+        value: /var/morny/bot.db
+      - key: GOOGLE_CLIENT_SECRET_FILE
+        value: /var/morny/credentials.json
+      - key: GOOGLE_TOKEN_FILE
+        value: /var/morny/token.json
+      - key: DISCORD_BOT_TOKEN
+        sync: false
+      - key: DISCORD_GUILD_ID
+        sync: false
+    # Optional (set in Render dashboard secrets):
+    # - GOOGLE_CLIENT_SECRET_JSON_B64: base64(credentials.json)
+    # - GOOGLE_TOKEN_JSON_B64: base64(token.json)
